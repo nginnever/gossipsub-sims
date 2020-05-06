@@ -63,6 +63,21 @@ const RetainScore = 1// * day
 
 var Trusted = {}
 
+class NetworkSim {
+  constructor(options, routers) {
+    this.options = options
+    this.routers = routers
+  }
+
+
+  relayMsg(msg, to, from) {
+    // can delay messages here conditionally, maybe based on simulated distance between sender/rec
+    //console.log(this.routers)
+    this.routers[to].handleRPCMessage(msg, from)
+  }
+}
+
+
 function Peer(
   id,
   topics, // a list of topics this peer subs to
@@ -97,9 +112,8 @@ class SimGSRouter {
     this.id = Math.floor(10000*Math.random())
     this.FloodSubID = "test_basic"
     this.topics = ["test0", "test1"]
-    this.mcache = {}
     this.gossipOn = true// false will disable this router from gossiping incoming messages
-    this.peers = [0,1]
+    this.peers = new Map()
     this.mesh = new Map()//     make(map[string]map[peer.ID]struct{}),
     this.fanout = {}//   make(map[string]map[peer.ID]struct{}),
     this.lastpub = {}//  make(map[string]int64),
@@ -109,7 +123,7 @@ class SimGSRouter {
     this.peerhave = {}// make(map[peer.ID]int),
     this.iasked = {}//   make(map[peer.ID]int),
     this.connect = {}//  make(chan connectInfo, GossipSubMaxPendingConnections),
-    this.mcache = {}//   NewMessageCache(GossipSubHistoryGossip, GossipSubHistoryLength),
+    this.mcache = new Map()//   NewMessageCache(GossipSubHistoryGossip, GossipSubHistoryLength),
 
     // these are configured per router to allow variation in tests
     this.D = GossipSubD
@@ -149,7 +163,9 @@ class SimGSRouter {
     console.log("starting heartbeat for peer: "+this.id)
     this.heartbeat()
     // get peers
-    this.peers = Trusted.peers
+    Trusted.peers.forEach((peer)=>{
+      this.peers.set(peer.id, peer)
+    })
     // get init scores for all peers
 
     // create initial mesh
@@ -209,10 +225,10 @@ class SimGSRouter {
     console.log("Peer: "+this.id+" received a message from: "+from+ " msg_id: "+msg.id)
     const topics = msg.topicIDs
 
-    if(this.mcache[msg.id] === msg) {
+    if(this.mcache.has(msg.id)) {
       return // already seen do not forward?
     } else {
-      this.mcache[msg.id] = msg
+      this.mcache.set(msg.id, msg)
     }
 
     // do not emit incoming messages to peers
@@ -259,7 +275,7 @@ class SimGSRouter {
   publishFlood(msg) {
     console.log("Peer: "+msg.from+" orgininating msg: "+msg.id)
     const topics = msg.topicIDs
-    this.mcache[msg.id] = msg
+    this.mcache.set(msg.id, msg)
 
     this.peers.forEach((peer) => {
       console.log("looking for peer to publish to")
@@ -273,21 +289,108 @@ class SimGSRouter {
         //this.log('publish msg on topics - floodsub', topics, peer.id)
       }
     })
-    this.network
   }
 
   flood(msg) {
 
   }
 
+  // Control Message Functions
   sendIHAVE() {
 
   }
 
-  handleIHAVE() {
+  // handles ihave messages from peers, returns an array of msgIDs this router has not seen yet
+  _handleIHAVE(peer, ihave) {
+    const iwant = new Set()
+    // TODO, implement spam protections
+    ihave.forEach(({ topicID, messageIDs }) => {
+      // don't continue if message is not in topic of interest
+      if (!this.mesh.has(topicID)) {
+        return
+      }
 
+      messageIDs.forEach((msgID) => {
+        if (this.mcache.has(msgID)) {
+          return
+        }
+        iwant.add(msgID)
+      })
+    })
+
+    if (!iwant.size) {
+      return
+    }
+
+    console.log('IHAVE: Asking for %d messages from %s', iwant.size, peer.id)
+
+    return {
+      messageIDs: Array.from(iwant)
+    }
   }
 
+  _handleIWant (peer, iwant) {
+    // @type {Map<string, rpc.RPC.Message>}
+    const ihave = new Map()
+
+    iwant.forEach(({ messageIDs }) => {
+      messageIDs.forEach((msgID) => {
+        const msg = this.mcache.get(msgID)
+        if (msg) {
+          ihave.set(msgID, msg)
+        }
+      })
+    })
+
+    if (!ihave.size) {
+      return
+    }
+
+    console.log('IWANT: Sending %d messages to %s', ihave.size, peer.id.toB58String())
+
+    return Array.from(ihave.values())
+  }
+
+  _handleGraft (peer, graft) {
+    const prune = []
+
+    graft.forEach(({ topicID }) => {
+      const peers = this.mesh.get(topicID)
+      if (!peers) {
+        prune.push(topicID)
+      } else {
+        console.log('GRAFT: Add mesh link from %s in %s', peer.id, topicID)
+        peers.add(peer)
+        //peer.topics.add(topicID)
+        this.mesh.set(topicID, peers)
+      }
+    })
+
+    if (!prune.length) {
+      return
+    }
+
+    const buildCtrlPruneMsg = (topic) => {
+      return {
+        topicID: topic
+      }
+    }
+
+    return prune.map(buildCtrlPruneMsg)
+  }
+
+  _handlePrune (peer, prune) {
+    prune.forEach(({ topicID }) => {
+      const peers = this.mesh.get(topicID)
+      if (peers) {
+        console.log('PRUNE: Remove mesh link to %s in %s', peer.id, topicID)
+        peers.delete(peer)
+        peer.topics.delete(topicID)
+      }
+    })
+  }
+
+  // P2P Sim functions
   loadNetwork(net) {
     this.network = net
   }
@@ -302,6 +405,7 @@ class SimGSRouter {
     })
   }
 
+  // Utility Functions
   anyMatch(a, b) {
     let bHas
     if (Array.isArray(b)) {
@@ -318,19 +422,16 @@ class SimGSRouter {
 
     return false
   }
-}
 
-class NetworkSim {
-  constructor(options, routers) {
-    this.options = options
-    this.routers = routers
-  }
+  async stop () {
+    await super.stop()
+    this.heartbeat.stop()
 
-
-  relayMsg(msg, to, from) {
-    // can delay messages here conditionally, maybe based on simulated distance between sender/rec
-    //console.log(this.routers)
-    this.routers[to].handleRPCMessage(msg, from)
+    this.mesh = new Map()
+    this.fanout = new Map()
+    this.lastpub = new Map()
+    this.gossip = new Map()
+    this.control = new Map()
   }
 }
 
@@ -364,7 +465,9 @@ console.log(Trusted.peers[1])
 peer0.attach()
 peer1.attach()
 peer2.attach()
-console.log("Peer0 peers: "+peer0.peers)
+peer0.peers.forEach((peer)=>{
+  console.log("Peer0 peer: "+peer.id)
+})
 let p0mesh = peer0.mesh.get("test0")
 console.log("Peer0 Mesh Topic test0: "+p0mesh)
 
@@ -372,8 +475,8 @@ console.log("Peer0 Mesh Topic test0: "+p0mesh)
 const flood = peer0.withFlooding(true);
 
 // send a message
-console.log("peer1 mcache before msg: "+ peer1.mcache[0])
-console.log("peer2 mcache before msg: "+ peer2.mcache[0])
+console.log("peer1 mcache before msg: "+ peer1.mcache.get(0))
+console.log("peer2 mcache before msg: "+ peer2.mcache.get(0))
 const msg = {
   id: 0,
   from: peer0.id,
@@ -381,8 +484,8 @@ const msg = {
 }
 
 peer0.publishFlood(msg)
-console.log("peer1 mcache after publish: "+ peer1.mcache[0])
-console.log("peer2 mcache after publish: "+ peer2.mcache[0])
+console.log("peer1 mcache after publish: "+ peer1.mcache.get(msg.id))
+console.log("peer2 mcache after publish: "+ peer2.mcache.get(msg.id))
 //console.log()
 
 // Score(p) = TopicCap(Σtᵢ*(w₁(tᵢ)*P₁(tᵢ) + w₂(tᵢ)*P₂(tᵢ) + w₃(tᵢ)*P₃(tᵢ) + w₃b(tᵢ)*P₃b(tᵢ) + w₄(tᵢ)*P₄(tᵢ))) + w₅*P₅ + w₆*P₆
