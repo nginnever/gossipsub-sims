@@ -1,0 +1,22 @@
+{
+  "name": "gossipsub-sims",
+  "version": "1.0.0",
+  "description": "Simulations of the gossibsub protocol",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nginnever/gossipsub-sims.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/nginnever/gossipsub-sims/issues"
+  },
+  "homepage": "https://github.com/nginnever/gossipsub-sims#readme",
+  "dependencies": {
+    "struct": "0.0.12"
+  }
+}

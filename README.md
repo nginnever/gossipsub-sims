@@ -1,2 +1,4 @@
 # gossipsub-sims
 Simulations of the gossibsub protocol
+
+A lightweight router that doesn't make real network connections but can simulate message delays with mock messages across mock meshes (should probably align this with filecoin/eth messages), simulate and globally record scores across all peers in the network, control the behavior with custom attack router options and examine effects on scoring. The idea is to remove the complexity of maintaining real connections and just examine the game theoretics of the scoring and message delivery times based on simulation configuration assumptions. This can more easily test nuances of attacks like covert flash. Removing the network does move this to less realistic modeling.
