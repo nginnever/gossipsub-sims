@@ -1,9 +1,9 @@
 var Struct = require('struct');
 
 // overlay parameters
-const GossipSubD = 6
-const GossipSubDlo = 5
-const GossipSubDhi = 12
+const GossipSubD = 6 // target mesh peers
+const GossipSubDlo = 5 // start looking for mesh peers
+const GossipSubDhi = 12 // start pruning mesh peers
 const GossipSubDscore = 4
 // gossip parameters
 const GossipSubHistoryLength = 5
@@ -13,7 +13,7 @@ const GossipSubGossipFactor = 0.25
 const GossipSubGossipRetransmission = 3
 // heartbeat interval
 const GossipSubHeartbeatInitialDelay = 100 //* time.Millisecond
-const GossipSubHeartbeatInterval = 1000 //* time.Millisecond
+const GossipSubHeartbeatInterval = 5000 //* time.Millisecond
 // fanout ttl
 const GossipSubFanoutTTL = 60 //* time.Second
 // number of peers to include in prune Peer eXchange
@@ -24,7 +24,7 @@ const GossipSubPruneBackoff = 1 //*time.Minute
 const GossipSubConnectors = 8
 // maximum number of pending connections for peers attempted through px
 const GossipSubMaxPendingConnections = 128
-// timeout for connection attempts
+// timeout for connection attempts, we simulate this
 const GossipSubConnectionTimeout = 30 //* time.Second
 // Number of heartbeat ticks for attempting to reconnect direct peers that are not
 // currently connected
@@ -73,7 +73,12 @@ class NetworkSim {
   relayMsg(msg, to, from) {
     // can delay messages here conditionally, maybe based on simulated distance between sender/rec
     //console.log(this.routers)
-    this.routers[to].handleRPCMessage(msg, from)
+    if(msg.type === "GRAFT") {
+      let peer = this.routers[from]
+      this.routers[to].handleRpcControl(msg, from, peer)
+    } else {
+      this.routers[to].handleRPCMessage(msg, from)
+    }
   }
 }
 
@@ -83,6 +88,7 @@ function Peer(
   topics, // a list of topics this peer subs to
   protocols,
   isWritable,
+  // scoring
   timeinMesh,
   firstMessageDeliveries,
   meshMessageDeliveryRate,
@@ -107,24 +113,23 @@ function Peer(
 
 // A peer score simulated router
 class SimGSRouter {
-  constructor(peerScoreParams, peerScoreThresholds) {
+  constructor(peerScoreParams, peerScoreThresholds, topics) {
 
     this.id = Math.floor(10000*Math.random())
     this.FloodSubID = "test_basic"
-    this.topics = ["test0", "test1"]
+    this.topics = topics // hard code subscribed topics for now
     this.gossipOn = true// false will disable this router from gossiping incoming messages
-    this.peers = new Map()
-    this.mesh = new Map()//     make(map[string]map[peer.ID]struct{}),
-    this.fanout = {}//   make(map[string]map[peer.ID]struct{}),
-    this.lastpub = {}//  make(map[string]int64),
-    this.gossip = "func"//   make(map[peer.ID][]*pb.ControlIHave),
-    this.control = "func"//  make(map[peer.ID]*pb.ControlMessage),
+    this.peers = new Map()// Map PeerID -> Peer
+    this.mesh = new Map()// Map Topic -> Peer Array of mesh peers
+    this.fanout = new Map()// Map Topic -> Peer Array of peers in topics this router is not a member of the topic
+    this.lastpub = new Map()//  Map Topic -> Time where time is last published to this topic
+    this.gossip = new Map()// Map Peer -> IHave(Message) of pending messages to gossip
+    this.control = new Map()// Map Peer -> Control(Message) of pending control messages 
     this.backoff = {}//  make(map[string]map[peer.ID]time.Time),
     this.peerhave = {}// make(map[peer.ID]int),
     this.iasked = {}//   make(map[peer.ID]int),
     this.connect = {}//  make(chan connectInfo, GossipSubMaxPendingConnections),
-    this.mcache = new Map()//   NewMessageCache(GossipSubHistoryGossip, GossipSubHistoryLength),
-
+    this.mcache = new Map()// Map MessageID -> Message this router has seen and stored
     // these are configured per router to allow variation in tests
     this.D = GossipSubD
     this.Dlo = GossipSubDlo
@@ -133,8 +138,8 @@ class SimGSRouter {
     this.Dlazy = GossipSubDlazy
 
     // these must be pulled in to resolve races in tests... sigh.
-    this.directConnectTicks = GossipSubDirectConnectTicks
-    this.opportunisticGraftTicks = GossipSubOpportunisticGraftTicks
+    //this.directConnectTicks = GossipSubDirectConnectTicks
+    //this.opportunisticGraftTicks = GossipSubOpportunisticGraftTicks
 
     this.fanoutTTL = GossipSubFanoutTTL
 
@@ -151,6 +156,10 @@ class SimGSRouter {
     this.doPX = false
     this.directPeers = {}
 
+    // Pubsub specific
+    this.subscriptions = new Set() //A set of subscriptions
+    this.seenCache = new Set() //Cache of seen messages
+
     // stats
     this.messagesReceived = 0
     this.messagesSent = 0
@@ -158,19 +167,29 @@ class SimGSRouter {
 
   }
 
-  attach() {
-    // start heartbeats
-    console.log("starting heartbeat for peer: "+this.id)
-    this.heartbeat()
+  start() {
+    // Immediately send my own subscriptions to the newly established conn
+    //peer.sendSubscriptions(this.subscriptions)
+
     // get peers
     Trusted.peers.forEach((peer)=>{
       this.peers.set(peer.id, peer)
     })
     // get init scores for all peers
 
-    // create initial mesh
+    // create mock initial connections, fanout and mesh
     this.peers.forEach((peer)=>{
       peer.topics.forEach((topic)=>{
+        // put all bootstrap nodes in fanout?
+        let fanpeers = this.fanout.get(topic)
+        if(!fanpeers) {
+          fanpeers = []
+        }
+        fanpeers.push(peer)
+        this.fanout.set(topic, fanpeers)
+        // this needs to be replaced with proper bootstrapping
+        // connect Trusted peers to a mesh, this is not done in gossip sub
+        // assume a network connection is made for this
         let mTopic = this.mesh.get(topic)
         if(!mTopic){
           this.mesh.set(topic, [peer])
@@ -181,7 +200,11 @@ class SimGSRouter {
       })
     })
 
+    // start heartbeats
+    console.log("starting heartbeat for peer: "+this.id)
+    this.heartbeat()
   }
+
   // heartbeat management
   heartbeat() {
     var id = this.id
@@ -202,11 +225,13 @@ class SimGSRouter {
     setInterval(beat, GossipSubHeartbeatInterval)
   }
 
+  // When active, published messages are forwarded to all peers with score >= publishThreshhold
   withFlooding(bool) {
     this.withFlood = bool
     return this.withFlood
   }
 
+  // When active PX is enabled on prune control messages. "Should be used on bootstrap/trusted nodes"
   withPX(bool) {
     this.doPX = bool
     return this.doPX
@@ -221,8 +246,31 @@ class SimGSRouter {
   } 
 
   // Actions
+  handleRpcControl (msg, from, fromPeer) {
+    console.log("Peer: "+this.id+" received a control message from: "+from+ " msg_id: "+msg.id+" msg_type: "+msg.type)
+    const controlMsg = msg.control
+
+    if (!controlMsg) {
+      return
+    }
+
+    const iWant = this._handleIHave(from, controlMsg.ihave)
+    const iHave = this._handleIWant(from, controlMsg.iwant)
+    const prune = this._handleGraft(fromPeer, controlMsg.graft)
+    console.log("prune: "+prune)
+    this._handlePrune(from, controlMsg.prune)
+
+    if (!iWant || !iHave || !prune) {
+      return
+    }
+
+    // most control functionality s disabled currently
+    //const outRpc = this._rpcWithControl(iHave, null, iWant, null, prune)
+    //this.network.relayMsg(outRpc, msg.from, from)
+  }
+
   handleRPCMessage(msg, from) {
-    console.log("Peer: "+this.id+" received a message from: "+from+ " msg_id: "+msg.id)
+    console.log("Peer: "+this.id+" received a message from: "+from+ " msg_id: "+msg.id+" msg_type: "+msg.type)
     const topics = msg.topicIDs
 
     if(this.mcache.has(msg.id)) {
@@ -300,9 +348,53 @@ class SimGSRouter {
 
   }
 
+  //TODO
+  join(topics) {
+    //topics = utils.ensureArray(topics)
+    console.log('JOIN %s', topics)
+    topics.forEach((topic) => {
+      // Send GRAFT to mesh peers, must have preloaded bootstrapped fanout peers
+      this.topics.push(topic)
+      const fanoutPeers = this.fanout.get(topic)
+
+      if(fanoutPeers) {
+        console.log("fanout peers found, generating mesh")
+        this.mesh.set(topic, fanoutPeers)
+        this.fanout.delete(topic)
+        this.lastpub.delete(topic)
+      } else {
+        // returns hardcoded peers set to be on all topics
+        const peers = this._getPeers(topic, constants.GossipSubD)
+        this.mesh.set(topic, peers)
+      }
+      this.mesh.get(topic).forEach((peer) => {
+        if(peer.id === this.id) { return }
+        console.log('JOIN: Add mesh link to %s in %s', peer.id, topic)
+        let msg = {
+          type:"GRAFT", 
+          topic:topic,
+          control: {
+            graft: [topic]
+          }
+        }
+        this.network.relayMsg(msg, peer.id, this.id)
+      })
+    })
+  }
+
+  leave(topics) {
+
+  }
+
+  _getPeers(topic, count) {
+    //hardcode peers for now
+    return Trusted.peers
+  }
+
   // handles ihave messages from peers, returns an array of msgIDs this router has not seen yet
-  _handleIHAVE(peer, ihave) {
+  _handleIHave(peer, ihave) {
     const iwant = new Set()
+    if(!ihave) { return }
     // TODO, implement spam protections
     ihave.forEach(({ topicID, messageIDs }) => {
       // don't continue if message is not in topic of interest
@@ -332,6 +424,7 @@ class SimGSRouter {
   _handleIWant (peer, iwant) {
     // @type {Map<string, rpc.RPC.Message>}
     const ihave = new Map()
+    if(!iwant) { return }
 
     iwant.forEach(({ messageIDs }) => {
       messageIDs.forEach((msgID) => {
@@ -353,14 +446,15 @@ class SimGSRouter {
 
   _handleGraft (peer, graft) {
     const prune = []
-
-    graft.forEach(({ topicID }) => {
+    if(!graft) { return }
+    graft.forEach((topicID) => {
       const peers = this.mesh.get(topicID)
       if (!peers) {
+        console.log(topicID)
         prune.push(topicID)
       } else {
         console.log('GRAFT: Add mesh link from %s in %s', peer.id, topicID)
-        peers.add(peer)
+        peers.push(peer)
         //peer.topics.add(topicID)
         this.mesh.set(topicID, peers)
       }
@@ -380,12 +474,14 @@ class SimGSRouter {
   }
 
   _handlePrune (peer, prune) {
+    if(!prune) { return }
     prune.forEach(({ topicID }) => {
       const peers = this.mesh.get(topicID)
-      if (peers) {
+      if(peers) {
         console.log('PRUNE: Remove mesh link to %s in %s', peer.id, topicID)
-        peers.delete(peer)
-        peer.topics.delete(topicID)
+        return
+        //peers.delete(peer)
+        //peer.topics.delete(topicID)
       }
     })
   }
@@ -395,10 +491,20 @@ class SimGSRouter {
     this.network = net
   }
 
+  _addPeer(p) {
+    if(this.peers.get(p.id)) {
+      return
+    }
+    this.peers.set(p.id, p)
+  }
+
+  // removes peer from list of known
   _removePeer(p) {
     this.peers.forEach((peer)=>{
       if(peer.id === p.id){
-        peer = {}
+        this.peers.delete(p.id)
+        this.gossip.delete(p.id)
+        this.control.delete(p.id)
       } else {
         console.log("could not find peer to delete")
       }
@@ -423,9 +529,8 @@ class SimGSRouter {
     return false
   }
 
-  async stop () {
-    await super.stop()
-    this.heartbeat.stop()
+  stop() {
+    //this.heartbeat.stop()
 
     this.mesh = new Map()
     this.fanout = new Map()
@@ -438,54 +543,87 @@ class SimGSRouter {
 // Run sim example
 
 // --Setup--
-const peer0 = new SimGSRouter(10, 10)
-const peer1 = new SimGSRouter(10, 10)
-const peer2 = new SimGSRouter(10, 10)
+const peer0 = new SimGSRouter(10, 10, ["test0", "test1"])
+const peer1 = new SimGSRouter(10, 10, ["test0", "test1"])
+const peer2 = new SimGSRouter(10, 10, ["test0", "test1"])
+const peer3 = new SimGSRouter(10, 10, []) // dont bootstrap peer3
 // load network with all routers
 let routers = {}
 routers[peer0.id] = peer0
 routers[peer1.id] = peer1
 routers[peer2.id] = peer2
+routers[peer3.id] = peer3
 
 const network = new NetworkSim({}, routers)
 // load each peer with the network
 peer0.loadNetwork(network)
 peer1.loadNetwork(network)
 peer2.loadNetwork(network)
+peer3.loadNetwork(network)
 
 // generate boot strap info
 Trusted.ids = [peer0.id, peer1.id, peer2.id]
 let p0 = Peer(peer0.id, peer0.topics, "test_basic", true, 0, 0, 0, 0, 0, 0)
 let p1 = Peer(peer1.id, peer1.topics, "test_basic", true, 0, 0, 0, 0, 0, 0)
 let p2 = Peer(peer2.id, peer2.topics, "test_basic", true, 0, 0, 0, 0, 0, 0)
+
 Trusted.peers = [p0,p1, p2]
 console.log("trusted list: "+Trusted.ids)
 console.log(Trusted.peers[1])
 // load peers with bootstrap nodes
-peer0.attach()
-peer1.attach()
-peer2.attach()
+peer0.start()
+peer1.start()
+peer2.start()
+peer3.start()
+
 peer0.peers.forEach((peer)=>{
   console.log("Peer0 peer: "+peer.id)
 })
+
 let p0mesh = peer0.mesh.get("test0")
-console.log("Peer0 Mesh Topic test0: "+p0mesh)
+p0mesh.forEach((peer)=>{
+  console.log("Peer0 mesh topic 'test0' peer: "+peer.id)
+})
 
 // not used currently
 const flood = peer0.withFlooding(true);
 
-// send a message
+// publish a message peer0
 console.log("peer1 mcache before msg: "+ peer1.mcache.get(0))
 console.log("peer2 mcache before msg: "+ peer2.mcache.get(0))
 const msg = {
+  type:"block",
   id: 0,
   from: peer0.id,
-  topicIDs: ["test1"]
+  topicIDs: ["test1"],
+  valid: true
 }
 
 peer0.publishFlood(msg)
-console.log("peer1 mcache after publish: "+ peer1.mcache.get(msg.id))
-console.log("peer2 mcache after publish: "+ peer2.mcache.get(msg.id))
+console.log("peer1 mcache after publish: "+ JSON.stringify(peer1.mcache.get(msg.id)))
+console.log("peer2 mcache after publish: "+ JSON.stringify(peer2.mcache.get(msg.id)))
+console.log("\n")
+console.log("----------------------------")
+// publish a message peer1
+console.log("peer0 mcache before msg: "+ peer0.mcache.get(1))
+console.log("peer2 mcache before msg: "+ peer2.mcache.get(1))
+const msg2 = {
+  type:"block",
+  id: 1,
+  from: peer1.id,
+  topicIDs: ["test0"],
+  valid: true
+}
+
+peer1.publishFlood(msg2)
+console.log("peer0 mcache after publish: "+ JSON.stringify(peer0.mcache.get(msg2.id)))
+console.log("peer2 mcache after publish: "+ JSON.stringify(peer2.mcache.get(msg2.id)))
+
+// connect a new peer
+let mP = peer0.mesh.get("test0")
+console.log("peer0 peers before: "+ mP)
+peer3.join(["test0", "test1"])
+console.log("peer0 peers after: "+ mP)
 //console.log()
 
 // Score(p) = TopicCap(Σtᵢ*(w₁(tᵢ)*P₁(tᵢ) + w₂(tᵢ)*P₂(tᵢ) + w₃(tᵢ)*P₃(tᵢ) + w₃b(tᵢ)*P₃b(tᵢ) + w₄(tᵢ)*P₄(tᵢ))) + w₅*P₅ + w₆*P₆
