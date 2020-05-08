@@ -61,6 +61,7 @@ const DecayInterval = 1// * hour
 const DecayToZero = 0.1
 const RetainScore = 1// * day
 
+// peer discovery
 var Trusted = {}
 
 class NetworkSim {
@@ -111,7 +112,7 @@ function Peer(
   }
 }
 
-// A peer score simulated router
+// A peer score simulated router, currently floodsub and PX are enabled
 class SimGSRouter {
   constructor(peerScoreParams, peerScoreThresholds, topics) {
 
@@ -337,13 +338,14 @@ class SimGSRouter {
         this.anyMatch(peer.topics, topics) &&
         peer.isWritable
       ) {
-        console.log("flooding message to all peers")
+        console.log(this.id+" flooding message to all peers")
         //simulate delay
         let defaultDelay = 1000
         let net = this.network
+        let myID = this.id
         function delay() {
-          console.log("message was delayed for: "+defaultDelay/1000+" second/s")
-          net.relayMsg(msg, peer.id, this.id)
+          console.log(myID+" message was delayed for: "+defaultDelay/1000+" second/s")
+          net.relayMsg(msg, peer.id, myID)
         }
         setTimeout(delay, defaultDelay)
         //this.log('publish msg on topics - floodsub', topics, peer.id)
@@ -367,9 +369,10 @@ class SimGSRouter {
         //simulate delay
         let defaultDelay = 1000
         let net = this.network
+        let myID = this.id
         function delay() {
-          console.log("message was delayed for: "+defaultDelay/1000+" second/s")
-          net.relayMsg(msg, peer.id, this.id)
+          console.log(myID+" message was delayed for: "+defaultDelay/1000+" second/s")
+          net.relayMsg(msg, peer.id, myID)
         }
         setTimeout(delay, defaultDelay)
       })
