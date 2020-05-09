@@ -90,9 +90,11 @@ function Peer(
   protocols,
   isWritable,
   // scoring
+  graftTime,
   timeinMesh,
   firstMessageDeliveries,
   meshMessageDeliveryRate,
+  meshMessageDeliveryActive,
   invalidMessages,
   applicationSpecific,
   IPColocationFactor
@@ -103,9 +105,11 @@ function Peer(
     protocols:protocols,
     isWritable:isWritable,
     // scoring
+    graftTime:graftTime,
     timeinMesh:timeinMesh,
     firstMessageDeliveries:firstMessageDeliveries,
     meshMessageDeliveryRate:meshMessageDeliveryRate,
+    meshMessageDeliveryActive:meshMessageDeliveryActive,
     invalidMessages:invalidMessages,
     applicationSpecific:applicationSpecific,
     IPColocationFactor:IPColocationFactor
@@ -531,6 +535,8 @@ class SimGSRouter {
         prune.push(topicID)
       } else {
         console.log('GRAFT: Add mesh link from %s in %s', peer.id, topicID)
+        // Record graft time for scoring
+        peer.graftTime = Date.now()
         peers.push(peer)
         //peer.topics.add(topicID)
         this.mesh.set(topicID, peers)
@@ -742,24 +748,25 @@ console.log("----------------------------")
 // publish a message peer1
 console.log("peer0 mcache before msg: "+ peer0.mcache.get(1))
 console.log("peer2 mcache before msg: "+ peer2.mcache.get(1))
-// const msg2 = {
-//   type:"block",
-//   id: 1,
-//   from: peer1.id,
-//   topicIDs: ["test0"],
-//   valid: true
-// }
+const msg2 = {
+  type:"block",
+  id: 1,
+  from: peer1.id,
+  topicIDs: ["test0"],
+  valid: true
+}
 
-// peer1.publishFlood(msg2)
-// console.log("peer0 mcache after publish: "+ JSON.stringify(peer0.mcache.get(msg2.id)))
-// console.log("peer2 mcache after publish: "+ JSON.stringify(peer2.mcache.get(msg2.id)))
+peer1.publishFlood(msg2)
+console.log("peer0 mcache after publish: "+ JSON.stringify(peer0.mcache.get(msg2.id)))
+console.log("peer2 mcache after publish: "+ JSON.stringify(peer2.mcache.get(msg2.id)))
 
-// // connect a new peer
-// let mP = peer0.mesh.get("test0")
-// console.log("peer0 peers before: "+ mP)
-// peer3.join(["test0"])
-// console.log("peer0 peers after: "+ mP)
-// console.log(peer3._enoughPeers("test0"))
+// connect a new peer
+let mP = peer0.mesh.get("test0")
+console.log("peer0 peers before: "+ mP)
+peer3.join(["test0"])
+console.log("peer0 peers after: "+ mP)
+console.log("peer3 graft time on peer0: "+mP[3].graftTime)
+console.log(peer3._enoughPeers("test0"))
 
 
 
