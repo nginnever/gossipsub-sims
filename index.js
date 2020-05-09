@@ -1,4 +1,5 @@
 var Struct = require('struct');
+var _ = require('lodash');
 
 // overlay parameters
 const GossipSubD = 6 // target mesh peers
@@ -71,25 +72,20 @@ class NetworkSim {
   }
 
 
-  relayMsg(msg, to, from) {
+  relayMsg(msg, to, from, peerRecord) {
     // can delay messages here conditionally, maybe based on simulated distance between sender/rec
     console.log("Peer: "+from+" relaying msg to: "+to)
     if(msg.type === "GRAFT") {
       let peer = this.routers[from]
-      this.routers[to].handleRpcControl(msg, from, peer)
+      this.routers[to].handleRpcControl(msg, from, peer, peerRecord)
     } else {
       this.routers[to].handleRPCMessage(msg, from)
     }
   }
 }
 
-
-function Peer(
+function TopicParams (
   id,
-  topics, // a list of topics this peer subs to
-  protocols,
-  isWritable,
-  // scoring
   graftTime,
   timeinMesh,
   firstMessageDeliveries,
@@ -98,13 +94,9 @@ function Peer(
   invalidMessages,
   applicationSpecific,
   IPColocationFactor
-  ) {
+  ){
   return {
     id:id,
-    topics:topics,
-    protocols:protocols,
-    isWritable:isWritable,
-    // scoring
     graftTime:graftTime,
     timeinMesh:timeinMesh,
     firstMessageDeliveries:firstMessageDeliveries,
@@ -113,6 +105,22 @@ function Peer(
     invalidMessages:invalidMessages,
     applicationSpecific:applicationSpecific,
     IPColocationFactor:IPColocationFactor
+  }
+}
+
+function Peer(
+  id,
+  topics, // a list of topics this peer subs to
+  protocols,
+  isWritable,
+  topicParams
+  ) {
+  return {
+    id:id,
+    topics:topics,
+    protocols:protocols,
+    isWritable:isWritable,
+    topicParams:topicParams// Map Topic -> TopicParams object
   }
 }
 
@@ -260,7 +268,7 @@ class SimGSRouter {
   } 
 
   // Actions
-  handleRpcControl (msg, from, fromPeer) {
+  handleRpcControl (msg, from, fromPeer, peerRecord) {
     console.log("Peer: "+this.id+" received a control message from: "+from+ " msg_id: "+msg.id+" msg_type: "+msg.type)
     const controlMsg = msg.control
 
@@ -271,7 +279,7 @@ class SimGSRouter {
 
     const iWant = {}//this._handleIHave(from, controlMsg.ihave)
     const iHave = {}//this._handleIWant(from, controlMsg.iwant)
-    const prune = this._handleGraft(fromPeer, controlMsg.graft)
+    const prune = this._handleGraft(fromPeer, controlMsg.graft, peerRecord)
     console.log("prune: "+prune)
     this._handlePrune(from, controlMsg.prune)
 
@@ -422,7 +430,8 @@ class SimGSRouter {
   }
 
   //TODO
-  join(topics) {
+  // PeerRecord is only used when new to network, should be empty from initialzation in simulations
+  join(topics, peerRecord) {
     //topics = utils.ensureArray(topics)
     console.log('JOIN %s', topics)
     topics.forEach((topic) => {
@@ -430,6 +439,7 @@ class SimGSRouter {
       this.topics.push(topic)
       const fanoutPeers = this.fanout.get(topic)
 
+      // Fill mesh with default values
       if(fanoutPeers) {
         console.log("fanout peers found, generating mesh")
         this.mesh.set(topic, fanoutPeers)
@@ -450,7 +460,15 @@ class SimGSRouter {
             graft: [topic]
           }
         }
-        this.network.relayMsg(msg, peer.id, this.id)
+        // clone peerRecord so that each "node" gets a clean copy
+        let copiedTopicParams = _.cloneDeep(peerRecord.topicParams)
+        console.log("*****")
+        console.log(copiedTopicParams.get('test0'))
+        let copiedPR = JSON.parse(JSON.stringify(peerRecord));
+        copiedPR.topicParams = copiedTopicParams
+        // send a graft message to each peer found for each topic joined
+        // default this to Dlo/high
+        this.network.relayMsg(msg, peer.id, this.id, copiedPR)
       })
     })
   }
@@ -517,8 +535,10 @@ class SimGSRouter {
     return Array.from(ihave.values())
   }
 
-  _handleGraft (peer, graft) {
+  _handleGraft (peer, graft, peerRecord) {
     // Score
+    console.log("peer record: ")
+    console.log(peerRecord)
     let score = this.scores.get(peer.id)
     // If topic is full, pass PX back, but don't graft
     // only pass PX if peer scores high enough
@@ -535,10 +555,16 @@ class SimGSRouter {
         prune.push(topicID)
       } else {
         console.log('GRAFT: Add mesh link from %s in %s', peer.id, topicID)
+        // add peer to peers
         // Record graft time for scoring
-        peer.graftTime = Date.now()
-        peers.push(peer)
-        //peer.topics.add(topicID)
+        let scores = peerRecord.topicParams.get(topicID)
+        //if()
+        scores.graftTime = Date.now()
+        peerRecord.topicParams.set(topicID, scores)
+        // save peer record
+        this.peers.set(peer.id, peerRecord)
+        peers.push(peerRecord)
+        // save mesh peer record
         this.mesh.set(topicID, peers)
       }
     })
@@ -648,8 +674,11 @@ class SimGSRouter {
     })
   }
 
-  _calculateScore(peer) {
-
+  _calculateScore(peerID) {
+    let peerRecord = this.peers.get(peerID)
+    peerRecord.topicParams.forEach((topic)=>{
+      console.log(topic)
+    })
   }
 
   // Utility Functions
@@ -703,10 +732,19 @@ peer2.loadNetwork(network)
 peer3.loadNetwork(network)
 
 // generate boot strap info
+// Store IDs (not necessary)
 Trusted.ids = [peer0.id, peer1.id, peer2.id]
-let p0 = Peer(peer0.id, peer0.topics, "test_basic", true, 0, 0, 0, 0, 0, 0)
-let p1 = Peer(peer1.id, peer1.topics, "test_basic", true, 0, 0, 0, 0, 0, 0)
-let p2 = Peer(peer2.id, peer2.topics, "test_basic", true, 0, 0, 0, 0, 0, 0)
+// Generate score storage initial values
+let tstats0 = TopicParams('test0',0, 0, 0, 0, 0, 0, 0, 0)
+let tstats1 = TopicParams('test1',0, 0, 0, 0, 0, 0, 0, 0)
+let tmap0 = new Map()
+tmap0.set(peer0.topics[0], tstats0)
+tmap0.set(peer0.topics[1], tstats1)
+let p0 = Peer(peer0.id, peer0.topics, "test_basic", true, tmap0)
+let p1 = Peer(peer1.id, peer1.topics, "test_basic", true, tmap0)
+let p2 = Peer(peer2.id, peer2.topics, "test_basic", true, tmap0)
+// add p3 later
+let p3 = Peer(peer3.id, peer3.topics, "test_basic", true, tmap0)
 
 Trusted.peers = [p0,p1, p2]
 console.log("trusted list: "+Trusted.ids)
@@ -763,10 +801,15 @@ console.log("peer2 mcache after publish: "+ JSON.stringify(peer2.mcache.get(msg2
 // connect a new peer
 let mP = peer0.mesh.get("test0")
 console.log("peer0 peers before: "+ mP)
-peer3.join(["test0"])
+peer3.join(["test0"], p3)
 console.log("peer0 peers after: "+ mP)
-console.log("peer3 graft time on peer0: "+mP[3].graftTime)
+console.log("peer3 graft time on peer0: "+mP[3].topicParams.get('test0').graftTime)
 console.log(peer3._enoughPeers("test0"))
+
+// test scoring
+console.log(peer0._calculateScore(peer1.id))
+console.log(peer0._calculateScore(peer3.id))
+console.log(peer1._calculateScore(peer3.id))
 
 
 
