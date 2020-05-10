@@ -87,23 +87,27 @@ function TopicParams (
   id,
   graftTime,
   timeinMesh,
+  TimeInMeshQuantum,
   firstMessageDeliveries,
+  meshMessageDeliveries,
   meshMessageDeliveryRate,
   meshMessageDeliveryActive,
+  meshFailurePenalty,
   invalidMessages,
-  applicationSpecific,
-  IPColocationFactor
+  TopicWeight
   ){
   return {
     id:id,
     graftTime:graftTime,
     timeinMesh:timeinMesh,
+    TimeInMeshQuantum:TimeInMeshQuantum,
     firstMessageDeliveries:firstMessageDeliveries,
+    meshMessageDeliveries:meshMessageDeliveries,
     meshMessageDeliveryRate:meshMessageDeliveryRate,
     meshMessageDeliveryActive:meshMessageDeliveryActive,
+    meshFailurePenalty:meshFailurePenalty,
     invalidMessages:invalidMessages,
-    applicationSpecific:applicationSpecific,
-    IPColocationFactor:IPColocationFactor
+    TopicWeight:TopicWeight
   }
 }
 
@@ -112,14 +116,18 @@ function Peer(
   topics, // a list of topics this peer subs to
   protocols, // defaulted to floodsub currently
   isWritable,
-  topicParams
+  topicParams,
+  applicationSpecificScore,
+  IPColocationFactorIPs
   ) {
   return {
     id:id,
     topics:topics,
     protocols:protocols,
     isWritable:isWritable,
-    topicParams:topicParams// Map Topic -> TopicParams object
+    topicParams:topicParams, // Map Topic -> TopicParams object
+    applicationSpecificScore:applicationSpecificScore,
+    IPColocationFactorIPs:IPColocationFactorIPs
   }
 }
 
@@ -155,7 +163,7 @@ class SimGSRouter {
 
     this.fanoutTTL = GossipSubFanoutTTL
 
-    // Scoring params
+    // Threshold Scoring params
     this.scores = new Map()// Map PeerID -> TotalScore
     this.gossipThreshold = GossipThreshold
     this.publishThreshold = PublishThreshold
@@ -164,6 +172,20 @@ class SimGSRouter {
     this.opportunisticGraftThreshold = OpportunisticGraftThreshold
     this.peerhave = new Map()// Map peerid -> number of incoming ihave messages within heartbeat invterval
     this.iasked = new Map()// Map peerid -> number of total messages advertised
+
+    // Topic Score Params and Weights, maybe move this to the topic object so they can be different for each
+    this.TimeInMeshCap = 9999999
+    this.TimeInMeshWeight = 1
+    this.FirstMessageDeliveriesWeight = 1
+    this.MeshMessageDeliveryThreshold = 9999999
+    this.MeshMessageDeliveryWeight = -1
+    this.MeshFailurePenaltyWeight = -1
+    this.InvalidMessagesWeight = -1
+    this.IPColocationFactorWeight = -1
+    this.applicationSpecificWeight = 0
+
+
+
 
     // Router options
     this.withFlood = true
@@ -677,10 +699,66 @@ class SimGSRouter {
   }
 
   _calculateScore(peerID) {
+    let score = 0
     let peerRecord = this.peers.get(peerID)
-    peerRecord.topicParams.forEach((topic)=>{
-      console.log(topic)
+    peerRecord.topicParams.forEach((topicData)=>{
+      console.log(topicData)
+      let topicScore = 0
+      // P1: time in mesh
+      // Todo: update timeinmeshquantum with latest time recorded in mesh (during heartbeat?)
+      let p1 = topicData.graftTime / topicData.TimeInMeshQuantum
+      if (p1>this.TimeInMeshCap) {
+        p1 = this.TimeInMeshCap
+      }
+      topicScore += p1 * this.TimeInMeshWeight
+
+      // P2: first message delivery
+      // TODO: Record when checking the mcache for new message in rpcmessage
+      let p2 = topicData.firstMessageDeliveries
+      topicScore += p2 * this.FirstMessageDeliveriesWeight
+
+      // P3: mesh message deliveries
+      // TODO: record all mesh message deliveries even if seen (also in rpcmessage)
+      let p3
+      if(topicData.meshMessageDeliveryActive) {
+        if(topicData.meshMessageDeliveries < this.MeshMessageDeliveryThreshold) {
+          let deficit = this.MeshMessageDeliveryThreshold - topicData.meshMessageDeliveries
+          p3 = deficit * deficit
+          topicScore += p3 * this.MeshMessageDeliveryWeight
+        }
+      }
+      console.log(topicScore)
+
+      // P3b: Negative weight here
+      // TODO: Figure out exactly what this is and where it should be tallied
+      let p3b = topicData.meshFailurePenalty
+      topicScore += p3b * this.MeshFailurePenaltyWeight
+      console.log(topicScore)
+
+      // P4
+      // TODO: score this in rpcmessage, create a flag on messages that just signals an invalid rather than
+      // build validation
+      let p4 = topicData.invalidMessages * topicData.invalidMessages
+      topicScore += p4 * this.InvalidMessagesWeight
+      console.log(topicScore)
+
+      score += topicScore * topicData.TopicWeight
     })
+
+    // TODO: Check Topic score cap
+
+    // P5
+    // Application Specific scoring
+    let p5 = peerRecord.applicationSpecificScore
+    score += p5 * this.applicationSpecificWeight
+
+    // P6
+    // IP Colocation penalty
+    // TODO: create a mock flag again on messages and check this in rpcmessage
+    peerRecord.IPColocationFactorIPs.forEach((ip) =>{
+      // TODO: Implement IPs and scoring this
+    })
+    return score
   }
 
   // Utility Functions

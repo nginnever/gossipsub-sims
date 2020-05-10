@@ -28,16 +28,16 @@ peer3.loadNetwork(network)
 // Store IDs (not necessary)
 Trusted.ids = [peer0.id, peer1.id, peer2.id]
 // Generate score storage initial values
-let tstats0 = SimGSRouter.TopicParams('test0',0, 0, 0, 0, 0, 0, 0, 0)
-let tstats1 = SimGSRouter.TopicParams('test1',0, 0, 0, 0, 0, 0, 0, 0)
+let tstats0 = SimGSRouter.TopicParams('test0',0, 0, 1, 0, 0, 0, true, 0, 0, 1)
+let tstats1 = SimGSRouter.TopicParams('test1',0, 0, 1, 0, 0, 0, true, 0, 0, 1)
 let tmap0 = new Map()
 tmap0.set(peer0.topics[0], tstats0)
 tmap0.set(peer0.topics[1], tstats1)
-let p0 = SimGSRouter.Peer(peer0.id, peer0.topics, "test_basic", true, tmap0)
-let p1 = SimGSRouter.Peer(peer1.id, peer1.topics, "test_basic", true, tmap0)
-let p2 = SimGSRouter.Peer(peer2.id, peer2.topics, "test_basic", true, tmap0)
+let p0 = SimGSRouter.Peer(peer0.id, peer0.topics, "test_basic", true, tmap0, 0, [])
+let p1 = SimGSRouter.Peer(peer1.id, peer1.topics, "test_basic", true, tmap0, 0, [])
+let p2 = SimGSRouter.Peer(peer2.id, peer2.topics, "test_basic", true, tmap0, 0, [])
 // add p3 later
-let p3 = SimGSRouter.Peer(peer3.id, peer3.topics, "test_basic", true, tmap0)
+let p3 = SimGSRouter.Peer(peer3.id, peer3.topics, "test_basic", true, tmap0, 0, [])
 
 Trusted.peers = [p0,p1, p2]
 console.log("trusted list: "+Trusted.ids)
