@@ -28,8 +28,8 @@ peer3.loadNetwork(network)
 // Store IDs (not necessary)
 Trusted.ids = [peer0.id, peer1.id, peer2.id]
 // Generate score storage initial values
-let tstats0 = SimGSRouter.TopicParams('test0',0, 0, 1, 0, 0, 0, true, 0, 0, 1)
-let tstats1 = SimGSRouter.TopicParams('test1',0, 0, 1, 0, 0, 0, true, 0, 0, 1)
+let tstats0 = SimGSRouter.TopicParams('test0',0, 0, 1, 0, 0, 0, true, 0, 0, 0.5)
+let tstats1 = SimGSRouter.TopicParams('test1',0, 0, 1, 0, 0, 0, true, 0, 0, 0.5)
 let tmap0 = new Map()
 tmap0.set(peer0.topics[0], tstats0)
 tmap0.set(peer0.topics[1], tstats1)
@@ -102,7 +102,7 @@ console.log(peer3._enoughPeers("test0"))
 // test scoring
 console.log(peer0._calculateScore(peer1.id))
 console.log(peer0._calculateScore(peer3.id))
-console.log(peer1._calculateScore(peer3.id))
+console.log(peer1._calculateScore(peer0.id))
 
 
 

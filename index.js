@@ -174,10 +174,10 @@ class SimGSRouter {
     this.iasked = new Map()// Map peerid -> number of total messages advertised
 
     // Topic Score Params and Weights, maybe move this to the topic object so they can be different for each
-    this.TimeInMeshCap = 9999999
-    this.TimeInMeshWeight = 1
+    this.TimeInMeshCap = 10
+    this.TimeInMeshWeight = 0.1
     this.FirstMessageDeliveriesWeight = 1
-    this.MeshMessageDeliveryThreshold = 9999999
+    this.MeshMessageDeliveryThreshold = 10
     this.MeshMessageDeliveryWeight = -1
     this.MeshFailurePenaltyWeight = -1
     this.InvalidMessagesWeight = -1
@@ -210,8 +210,11 @@ class SimGSRouter {
     // Immediately send my own subscriptions to the newly established conn
     //peer.sendSubscriptions(this.subscriptions)
 
+    // deep clone so each router has its own copy in memory for peer records
+    let copiedTrusted = _.cloneDeep(Trusted)
+
     // get peers
-    Trusted.peers.forEach((peer)=>{
+    copiedTrusted.peers.forEach((peer)=>{
       this.peers.set(peer.id, peer)
     })
     // get init scores for all peers or assume they are good scoring bootstraps for now
@@ -344,11 +347,54 @@ class SimGSRouter {
     // I want logic
     // skipping
 
+    // Check mcache, has this message been seen before?
     if(this.mcache.has(msg.id)) {
+      // Still credit message delivery
+      let peerRecord = this.peers.get(from)
+      msg.topicIDs.forEach((topic)=>{
+        peerRecord.topicParams.forEach((topicData)=>{
+          if(topicData.id === topic){
+            let s = peerRecord.topicParams.get(topic)
+            s.meshMessageDeliveries++
+            peerRecord.topicParams.set(topic, s)
+          }
+        })
+      })
+      this.peers.set(from, peerRecord)
       return // already seen do not forward?
     } else {
       this.mcache.set(msg.id, msg)
     }
+
+    // mock validation failure
+    if(msg.fail === true) {
+      let peerRecord = this.peers.get(from)
+      msg.topicIDs.forEach((topic)=>{
+        peerRecord.topicParams.forEach((topicData)=>{
+          if(topicData.id === topic){
+            let s = peerRecord.topicParams.get(topic)
+            s.invalidMessages++
+            peerRecord.topicParams.set(topic, s)
+          }
+        })
+      })
+      this.peers.set(from, peerRecord)
+    }
+
+    // input peer scoring record for first message delivery 
+    let peerRecord = this.peers.get(from)
+    msg.topicIDs.forEach((topic)=>{
+      peerRecord.topicParams.forEach((topicData)=>{
+        if(topicData.id === topic){
+          let s = peerRecord.topicParams.get(topic)
+          s.firstMessageDeliveries++
+          peerRecord.topicParams.set(topic, s)
+        }
+      })
+    })
+    console.log("Peer score firstMessageDeliveries "+peerRecord.topicParams.get(msg.topicIDs[0]).firstMessageDeliveries)
+    //update the peer record with new score
+    this.peers.set(from, peerRecord)
 
     // do not emit incoming messages to peers
     if(this.noGossip) {
@@ -706,16 +752,23 @@ class SimGSRouter {
       let topicScore = 0
       // P1: time in mesh
       // Todo: update timeinmeshquantum with latest time recorded in mesh (during heartbeat?)
-      let p1 = topicData.graftTime / topicData.TimeInMeshQuantum
+      //let p1 = topicData.graftTime / topicData.TimeInMeshQuantum
+      if(topicData.graftTime == 0) {
+        topicData.graftTime = Date.now()
+      }
+
+      let p1 = Date.now() - topicData.graftTime
       if (p1>this.TimeInMeshCap) {
         p1 = this.TimeInMeshCap
       }
       topicScore += p1 * this.TimeInMeshWeight
+      console.log(topicScore)
 
       // P2: first message delivery
       // TODO: Record when checking the mcache for new message in rpcmessage
       let p2 = topicData.firstMessageDeliveries
       topicScore += p2 * this.FirstMessageDeliveriesWeight
+      console.log(topicScore)
 
       // P3: mesh message deliveries
       // TODO: record all mesh message deliveries even if seen (also in rpcmessage)
