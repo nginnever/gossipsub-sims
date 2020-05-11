@@ -419,29 +419,30 @@ class SimGSRouter {
     //
 
 
-    // Flood publish
-    this.peers.forEach((peer) => {
-      if (peer.protocols.includes(this.FloodSubID) &&
-        peer.id !== msg.from &&
-        peer.id !== from &&
-        peer.id !== this.id &&
-        this.anyMatch(peer.topics, topics) &&
-        peer.isWritable
-      ) {
-        console.log(this.id+" flooding message to all peers")
-        //simulate delay
-        let defaultDelay = 1000
-        let realdelay = peer.distance
-        let net = this.network
-        let myID = this.id
-        function delay() {
-          console.log(myID+" message was delayed for: "+realdelay/1000+" second/s")
-          net.relayMsg(msg, peer.id, myID)
-        }
-        setTimeout(delay, realdelay)
-        //this.log('publish msg on topics - floodsub', topics, peer.id)
-      }
-    })
+    // Flood publish -- only whe originator, relayers forward to mesh
+    // Do adaprive gossip here and forward to a portion of peers?
+    // this.peers.forEach((peer) => {
+    //   if (peer.protocols.includes(this.FloodSubID) &&
+    //     peer.id !== msg.from &&
+    //     peer.id !== from &&
+    //     peer.id !== this.id &&
+    //     this.anyMatch(peer.topics, topics) &&
+    //     peer.isWritable
+    //   ) {
+    //     console.log(this.id+" flooding message to all peers")
+    //     //simulate delay
+    //     let defaultDelay = 1000
+    //     let realdelay = peer.distance
+    //     let net = this.network
+    //     let myID = this.id
+    //     function delay() {
+    //       console.log(myID+" message was delayed for: "+realdelay/1000+" second/s")
+    //       net.relayMsg(msg, peer.id, myID)
+    //     }
+    //     setTimeout(delay, realdelay)
+    //     //this.log('publish msg on topics - floodsub', topics, peer.id)
+    //   }
+    // })
 
     // Emit to peers in the mesh
     topics.forEach((topic) => {
@@ -459,13 +460,14 @@ class SimGSRouter {
         console.log(this.id+" is attempting to forward to mesh: "+topic+" for peer: "+peer.id)
         //simulate delay
         let defaultDelay = 1000
+        let realdelay = peer.distance
         let net = this.network
         let myID = this.id
         function delay() {
-          console.log(myID+" message was delayed for: "+defaultDelay/1000+" second/s")
+          console.log(myID+" message was delayed for: "+realdelay/1000+" second/s")
           net.relayMsg(msg, peer.id, myID)
         }
-        setTimeout(delay, defaultDelay)
+        setTimeout(delay, realdelay)
       })
     })
 
@@ -479,8 +481,6 @@ class SimGSRouter {
     // floodsub peers and direct peers
     this.peers.forEach((peer) => {
       console.log("looking for peer to publish to")
-      console.log(peer.id)
-      console.log(peer.protocols)
       if (peer.protocols.includes(this.FloodSubID) &&
         peer.id !== this.id &&
         this.anyMatch(peer.topics, topics) &&

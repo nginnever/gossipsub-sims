@@ -10,12 +10,14 @@ const peer0 = new SimGSRouter(10, 10, ["test0", "test1"])
 const peer1 = new SimGSRouter(10, 10, ["test0", "test1"])
 const peer2 = new SimGSRouter(10, 10, ["test0", "test1"])
 const peer3 = new SimGSRouter(10, 10, []) // dont connect bootstrap to peer3
+const peer4 = new SimGSRouter(10, 10, []) // dont connect bootstrap to peer3
 // load network with all routers
 let routers = {}
 routers[peer0.id] = peer0
 routers[peer1.id] = peer1
 routers[peer2.id] = peer2
 routers[peer3.id] = peer3
+routers[peer4.id] = peer4
 
 const network = new SimGSRouter.NetworkSim({}, routers)
 // load each peer with the network
@@ -23,6 +25,7 @@ peer0.loadNetwork(network)
 peer1.loadNetwork(network)
 peer2.loadNetwork(network)
 peer3.loadNetwork(network)
+peer4.loadNetwork(network)
 
 // generate boot strap info
 // Store IDs (not necessary)
@@ -38,6 +41,7 @@ let p1 = SimGSRouter.Peer(peer1.id, peer1.topics, "test_basic", true, tmap0, 0, 
 let p2 = SimGSRouter.Peer(peer2.id, peer2.topics, "test_basic", true, tmap0, 0, [], 0)
 // add p3 later
 let p3 = SimGSRouter.Peer(peer3.id, peer3.topics, "test_basic", true, tmap0, 0, [], 0)
+let p4 = SimGSRouter.Peer(peer4.id, peer4.topics, "test_basic", true, tmap0, 0, [], 0)
 
 Trusted.peers = [p0,p1, p2]
 // console.log("trusted list: "+Trusted.ids)
@@ -48,6 +52,8 @@ peer0.start(Trusted)
 peer1.start(Trusted)
 peer2.start(Trusted)
 peer3.start(Trusted)
+Trusted.peers = [p0]
+peer4.start(Trusted)
 
 // peer0.peers.forEach((peer)=>{
 //   console.log("Peer0 peer: "+peer.id)
@@ -95,6 +101,7 @@ peer1.publishFlood(msg2)
 let mP = peer0.mesh.get("test0")
 //console.log("peer0 peers before: "+ mP)
 peer3.join(["test0"], p3)
+peer4.join(["test0"], p4)
 //console.log("peer0 peers after: "+ mP)
 //console.log("peer3 graft time on peer0: "+mP[3].topicParams.get('test0').graftTime)
 //console.log(peer3._enoughPeers("test0"))
@@ -129,16 +136,22 @@ function delay() {
     console.log(peer0._calculateScore(peer1.id))
     console.log(peer0._calculateScore(peer3.id))
     console.log(peer1._calculateScore(peer0.id))
+    console.log(peer3._calculateScore(peer0.id))
 
-    const msg4 = {
-      type:"block",
-      id: 3,
-      from: peer2.id,
-      topicIDs: ["test0"],
-      valid: true
-    }
+    // const msg4 = {
+    //   type:"block",
+    //   id: 3,
+    //   from: peer2.id,
+    //   topicIDs: ["test0"],
+    //   valid: true
+    // }
 
-    peer2.publishFlood(msg4)    
+    // peer2.publishFlood(msg4)
+
+    // create disconnected mesh peer, 
+    // current mesh
+    // 0-1-2-3 for all topics
+    // 4-3  
   }
   setTimeout(delay2, 3000)
 }
