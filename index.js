@@ -53,10 +53,10 @@ const GossipSubMaxIHaveLength = 5000
 const GossipSubMaxIHaveMessages = 10
 
 // threshholds
-const GossipThreshold = 0
-const PublishThreshold = 0
-const GraylistThreshold = -1
-const AcceptPXThreshold = 1
+const GossipThreshold = -100
+const PublishThreshold = -100
+const GraylistThreshold = -200
+const AcceptPXThreshold = -200
 const OpportunisticGraftThreshold = 1
 const DecayInterval = 1// * hour
 const DecayToZero = 0.1
@@ -118,7 +118,8 @@ function Peer(
   isWritable,
   topicParams,
   applicationSpecificScore,
-  IPColocationFactorIPs
+  IPColocationFactorIPs,
+  distance // simulated distance delay in milliseconds
   ) {
   return {
     id:id,
@@ -127,7 +128,8 @@ function Peer(
     isWritable:isWritable,
     topicParams:topicParams, // Map Topic -> TopicParams object
     applicationSpecificScore:applicationSpecificScore,
-    IPColocationFactorIPs:IPColocationFactorIPs
+    IPColocationFactorIPs:IPColocationFactorIPs,
+    distance:distance
   }
 }
 
@@ -221,7 +223,11 @@ class SimGSRouter {
 
     // create mock initial connections, fanout and mesh
     // start the PX 
+    let delays = [1000, 1500, 2000, 500]
+    let i = 0
     this.peers.forEach((peer)=>{
+      peer.distance = delays[i]
+      i++
       // only do GossipSubConnectors number of peers = 8
       peer.topics.forEach((topic)=>{
         // put all bootstrap nodes in fanout?
@@ -250,8 +256,8 @@ class SimGSRouter {
     })
 
     // start heartbeats
-    console.log("starting heartbeat for peer: "+this.id)
-    this.heartbeat()
+    //console.log("starting heartbeat for peer: "+this.id)
+    //this.heartbeat()
   }
 
   // heartbeat management
@@ -401,7 +407,9 @@ class SimGSRouter {
       return
     }
     // we ignore IHAVE gossip from any peer whose score is below the gossip threshold
-    let score = this.scores.get(from)
+
+    //let score = this.scores.get(from)
+    let score = this._calculateScore(from)
     console.log("Score of sender: "+score)
     // This will stop a message recieved from being passed, combining both ihave/iwant messages
     if(score < this.gossipThreshold) {
@@ -423,13 +431,14 @@ class SimGSRouter {
         console.log(this.id+" flooding message to all peers")
         //simulate delay
         let defaultDelay = 1000
+        let realdelay = peer.distance
         let net = this.network
         let myID = this.id
         function delay() {
-          console.log(myID+" message was delayed for: "+defaultDelay/1000+" second/s")
+          console.log(myID+" message was delayed for: "+realdelay/1000+" second/s")
           net.relayMsg(msg, peer.id, myID)
         }
-        setTimeout(delay, defaultDelay)
+        setTimeout(delay, realdelay)
         //this.log('publish msg on topics - floodsub', topics, peer.id)
       }
     })
@@ -470,13 +479,15 @@ class SimGSRouter {
     // floodsub peers and direct peers
     this.peers.forEach((peer) => {
       console.log("looking for peer to publish to")
+      console.log(peer.id)
+      console.log(peer.protocols)
       if (peer.protocols.includes(this.FloodSubID) &&
         peer.id !== this.id &&
         this.anyMatch(peer.topics, topics) &&
         peer.isWritable
       ) {
         // check score of peer
-        let score = this.scores.get(peer.id)
+        let score = this._calculateScore(peer.id)
         if(score >= this.publishThreshold) {
           this.network.relayMsg(msg, peer.id, this.id)
         } else {
@@ -532,10 +543,11 @@ class SimGSRouter {
         }
         // clone peerRecord so that each "node" gets a clean copy
         let copiedTopicParams = _.cloneDeep(peerRecord.topicParams)
-        console.log("*****")
-        console.log(copiedTopicParams.get('test0'))
-        let copiedPR = JSON.parse(JSON.stringify(peerRecord));
+        let copiedPR = JSON.parse(JSON.stringify(peerRecord))
+        copiedPR.distance = Math.floor(1000*Math.random())// TODO use math.random
+        peer.distance = copiedPR.distance
         copiedPR.topicParams = copiedTopicParams
+        this.peers.set(peer.id, peer)
         // send a graft message to each peer found for each topic joined
         // default this to Dlo/high
         this.network.relayMsg(msg, peer.id, this.id, copiedPR)
@@ -607,9 +619,7 @@ class SimGSRouter {
 
   _handleGraft (peer, graft, peerRecord) {
     // Score
-    console.log("peer record: ")
-    console.log(peerRecord)
-    let score = this.scores.get(peer.id)
+    let score = 0 // assume first time grafting
     // If topic is full, pass PX back, but don't graft
     // only pass PX if peer scores high enough
     // check peer backoff timers
@@ -625,6 +635,7 @@ class SimGSRouter {
         prune.push(topicID)
       } else {
         console.log('GRAFT: Add mesh link from %s in %s', peer.id, topicID)
+        console.log('Peer Distance: '+ peerRecord.distance)
         // add peer to peers
         // Record graft time for scoring
         let scores = peerRecord.topicParams.get(topicID)
@@ -655,7 +666,7 @@ class SimGSRouter {
   _handlePrune (peer, prune) {
     if(!prune) { return }
     // Score
-    let score = this.scores.get(peer.id)
+    let score = this._calculateScore(peer.id)
 
     prune.forEach((topicID) => {
       const peers = this.mesh.get(topicID)
@@ -748,7 +759,7 @@ class SimGSRouter {
     let score = 0
     let peerRecord = this.peers.get(peerID)
     peerRecord.topicParams.forEach((topicData)=>{
-      console.log(topicData)
+      //console.log(topicData)
       let topicScore = 0
       // P1: time in mesh
       // Todo: update timeinmeshquantum with latest time recorded in mesh (during heartbeat?)
@@ -762,13 +773,13 @@ class SimGSRouter {
         p1 = this.TimeInMeshCap
       }
       topicScore += p1 * this.TimeInMeshWeight
-      console.log(topicScore)
+      //console.log(topicScore)
 
       // P2: first message delivery
       // TODO: Record when checking the mcache for new message in rpcmessage
       let p2 = topicData.firstMessageDeliveries
       topicScore += p2 * this.FirstMessageDeliveriesWeight
-      console.log(topicScore)
+      //console.log(topicScore)
 
       // P3: mesh message deliveries
       // TODO: record all mesh message deliveries even if seen (also in rpcmessage)
@@ -780,20 +791,20 @@ class SimGSRouter {
           topicScore += p3 * this.MeshMessageDeliveryWeight
         }
       }
-      console.log(topicScore)
+      //console.log(topicScore)
 
       // P3b: Negative weight here
       // TODO: Figure out exactly what this is and where it should be tallied
       let p3b = topicData.meshFailurePenalty
       topicScore += p3b * this.MeshFailurePenaltyWeight
-      console.log(topicScore)
+      //console.log(topicScore)
 
       // P4
       // TODO: score this in rpcmessage, create a flag on messages that just signals an invalid rather than
       // build validation
       let p4 = topicData.invalidMessages * topicData.invalidMessages
       topicScore += p4 * this.InvalidMessagesWeight
-      console.log(topicScore)
+      //console.log(topicScore)
 
       score += topicScore * topicData.TopicWeight
     })
