@@ -208,7 +208,7 @@ class SimGSRouter {
 
   }
 
-  start(Trusted) {
+  start(Trusted, delays) {
     // Immediately send my own subscriptions to the newly established conn
     //peer.sendSubscriptions(this.subscriptions)
 
@@ -223,7 +223,6 @@ class SimGSRouter {
 
     // create mock initial connections, fanout and mesh
     // start the PX 
-    let delays = [1000, 1500, 2000, 500]
     let i = 0
     this.peers.forEach((peer)=>{
       peer.distance = delays[i]
@@ -512,12 +511,13 @@ class SimGSRouter {
 
   //TODO
   // PeerRecord is only used when new to network, should be empty from initialzation in simulations
-  join(topics, peerRecord) {
+  join(topics, peerRecord, forcePeer) {
     //topics = utils.ensureArray(topics)
     console.log('JOIN %s', topics)
     topics.forEach((topic) => {
       // Send GRAFT to mesh peers, must have preloaded bootstrapped fanout peers
-      this.topics.push(topic)
+      this.peers.set(forcePeer.id, forcePeer)
+      //this.topics.push(topic)
       const fanoutPeers = this.fanout.get(topic)
 
       // Fill mesh with default values
@@ -528,8 +528,8 @@ class SimGSRouter {
         this.lastpub.delete(topic)
       } else {
         // returns hardcoded peers set to be on all topics
-        const peers = this._getPeers(topic, constants.GossipSubD)
-        this.mesh.set(topic, peers)
+        //const peers = this._getPeers(topic, constants.GossipSubD)
+        this.mesh.set(topic, [forcePeer])
       }
       this.mesh.get(topic).forEach((peer) => {
         if(peer.id === this.id) { return }
@@ -642,9 +642,9 @@ class SimGSRouter {
         //if()
         scores.graftTime = Date.now()
         peerRecord.topicParams.set(topicID, scores)
+        peers.push(peerRecord)
         // save peer record
         this.peers.set(peer.id, peerRecord)
-        peers.push(peerRecord)
         // save mesh peer record
         this.mesh.set(topicID, peers)
       }

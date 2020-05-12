@@ -164,46 +164,6 @@ async function demo() {
 
 demo();
 
-// function delay() {
-//   console.log(peer0._calculateScore(peer1.id))
-//   console.log(peer0._calculateScore(peer3.id))
-//   console.log(peer1._calculateScore(peer0.id))
-
-//   const msg3 = {
-//     type:"block",
-//     id: 2,
-//     from: peer3.id,
-//     topicIDs: ["test0"],
-//     valid: true
-//   }
-
-//   peer3.publishFlood(msg3)
-
-//   function delay2(){
-//     console.log(peer0._calculateScore(peer1.id))
-//     console.log(peer0._calculateScore(peer3.id))
-//     console.log(peer1._calculateScore(peer0.id))
-//     console.log(peer3._calculateScore(peer0.id))
-
-//     // const msg4 = {
-//     //   type:"block",
-//     //   id: 3,
-//     //   from: peer2.id,
-//     //   topicIDs: ["test0"],
-//     //   valid: true
-//     // }
-
-//     // peer2.publishFlood(msg4)
-
-//     // create disconnected mesh peer, 
-//     // current mesh
-//     // 0-1-2-3 for all topics
-//     // 4-3  
-//   }
-//   setTimeout(delay2, 3000)
-// }
-// setTimeout(delay, 2000)
-
 
 // Score(p) = TopicCap(Σtᵢ*(w₁(tᵢ)*P₁(tᵢ) + w₂(tᵢ)*P₂(tᵢ) + w₃(tᵢ)*P₃(tᵢ) + w₃b(tᵢ)*P₃b(tᵢ) + w₄(tᵢ)*P₄(tᵢ))) + w₅*P₅ + w₆*P₆
 
