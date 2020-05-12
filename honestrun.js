@@ -102,7 +102,7 @@ peers[2].peers.forEach((peer)=>{
 })
 
 console.log("Publishing messages starting...")
-let messagesSent = 2
+let messagesSent = 3
 for(var i=0; i<messagesSent; i++){
   console.log("----------------------------")
   const msg = {
@@ -121,46 +121,23 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+let peerScoreMatrix = []
 async function demo() {
-  await sleep(2000)
-  console.log(peers[0]._calculateScore(peers[1].id))
-  console.log(peers[0]._calculateScore(peers[3].id))
-  console.log(peers[1]._calculateScore(peers[0].id))
-  console.log(peers[3]._calculateScore(peers[0].id))  
-
-  // const msg3 = {
-  //   type:"block",
-  //   id: 2,
-  //   from: peer3.id,
-  //   topicIDs: ["test0"],
-  //   valid: true
-  // }
-
-  // peer3.publishFlood(msg3)
-
-  // await sleep(2000);
-
-  // console.log(peer0._calculateScore(peer1.id))
-  // console.log(peer0._calculateScore(peer3.id))
-  // console.log(peer1._calculateScore(peer0.id))
-  // console.log(peer3._calculateScore(peer0.id))
-
-  // const msg4 = {
-  //   type:"block",
-  //   id: 3,
-  //   from: peer2.id,
-  //   topicIDs: ["test0"],
-  //   valid: true
-  // }
-
-  // peer2.publishFlood(msg4)
-
-  // await sleep(2000);
-
-  // console.log(peer0._calculateScore(peer1.id))
-  // console.log(peer0._calculateScore(peer3.id))
-  // console.log(peer1._calculateScore(peer0.id))
-  // console.log(peer3._calculateScore(peer0.id))  
+  await sleep(3000)
+  let count = 0
+  for(var i=0; i<totalNodes; i++){
+    peerScoreMatrix[i] = []
+    for(var j=0; j<totalNodes; j++){
+      let isPeer = peers[i].peers.get(peers[j].id)
+      //console.log(isPeer)
+      if(isPeer){
+        count++
+        peerScoreMatrix[i][j] = peers[i]._calculateScore(peers[j].id)
+        //console.log(peers[i]._calculateScore(peers[j].id))
+      }
+    }
+  }
+  console.log(peerScoreMatrix)
 }
 
 demo();
