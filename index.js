@@ -397,7 +397,8 @@ class SimGSRouter {
         }
       })
     })
-    console.log("Peer score firstMessageDeliveries "+peerRecord.topicParams.get(msg.topicIDs[0]).firstMessageDeliveries)
+
+    console.log("Peer: "+peerRecord.id+" score firstMessageDeliveries "+peerRecord.topicParams.get(msg.topicIDs[0]).firstMessageDeliveries)
     //update the peer record with new score
     this.peers.set(from, peerRecord)
 
