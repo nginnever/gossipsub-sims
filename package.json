@@ -17,7 +17,7 @@
   },
   "homepage": "https://github.com/nginnever/gossipsub-sims#readme",
   "dependencies": {
-    "lodash": "^4.17.15",
+    "lodash": "^4.17.19",
     "struct": "0.0.12"
   }
 }
